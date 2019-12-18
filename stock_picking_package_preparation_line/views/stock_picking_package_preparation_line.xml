@@ -10,7 +10,7 @@
             <page string="Transfers" position="after">
                 <page string="Details">
                     <field name="line_ids">
-                        <tree>
+                        <tree delete="false">
                             <field name="sequence" widget="handle"/>
                             <field name="name" />
                             <field name="product_id"/>
