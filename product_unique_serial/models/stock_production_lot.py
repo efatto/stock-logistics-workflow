@@ -34,12 +34,12 @@ class StockProductionLot(models.Model):
         string="Last location",
         compute='_get_last_location_id',
         store=True)
-    ref = fields.Char('Internal Reference',
-                      help="Internal reference number"
-                           " in this case it"
-                           " is same of manufacturer's"
-                           " serial number",
-                      related="name", store=True, readonly=True)
+    # ref = fields.Char('Internal Reference',
+    #                   help="Internal reference number"
+    #                        " in this case it"
+    #                        " is same of manufacturer's"
+    #                        " serial number",
+    #                   related="name", store=True, readonly=True)
 
     @api.multi
     @api.depends('quant_ids')
