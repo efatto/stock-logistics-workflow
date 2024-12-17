@@ -191,7 +191,8 @@ class TestCommon(tests.SavepointCase):
 
         # Set all the requested quantities as done
         for stock_move in stock_moves:
-            stock_move.quantity_done = stock_move.product_uom_qty
+            for sml in stock_move.move_line_ids:
+                sml.qty_done = sml.product_uom_qty
 
         if len(datetime_backdating_list) == 1:
             # Assign the same date to all the move lines using the wizard
