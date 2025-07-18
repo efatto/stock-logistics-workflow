@@ -1,7 +1,7 @@
 # Copyright 2018 Camptocamp SA
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from odoo import _, models
+from odoo import models
 from odoo.exceptions import UserError
 
 
@@ -28,15 +28,15 @@ class StockMove(models.Model):
             blocking_objects = self.identify_blocking_objects(blocking_moves)
             error_objects = ""
             for object_type, objects in blocking_objects.items():
-                error_objects += _(
+                error_objects += self.env._(
                     "- {} : {}. \n".format(
                         object_type, ",".join([o.name for o in objects])
                     )
                 )
             raise UserError(
-                _(
-                    "Cancelation of destination move is restricted if any "
-                    "previous move is not canceled or done."
+                self.env._(
+                    "Cancellation of destination move is restricted if any "
+                    "previous move is not canceled or done. "
                     "Original moves are not canceled or done on the following "
                     "objects : \n%s"
                 )
