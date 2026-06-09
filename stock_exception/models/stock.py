@@ -24,6 +24,22 @@ class StockPicking(models.Model):
         all_exceptions += moves.detect_exceptions()
         return all_exceptions
 
+    @staticmethod
+    def _fields_trigger_check_exception():
+        return ["ignore_exception", "move_ids", "state"]
+
+    def _check_stock_check_exception(self, vals):
+        check_exceptions = any(
+            field in vals for field in self._fields_trigger_check_exception()
+        )
+        if check_exceptions:
+            self.stock_check_exception()
+
+    def write(self, vals):
+        result = super().write(vals)
+        self._check_stock_check_exception(vals)
+        return result
+
     @api.constrains("ignore_exception", "move_ids", "state")
     def stock_check_exception(self):
         pickings = self.filtered(
@@ -32,10 +48,10 @@ class StockPicking(models.Model):
         if pickings:
             pickings._check_exception()
 
-    @api.onchange("move_ids")
+    @api.onchange("move_ids_without_package", "ignore_exception")
     def onchange_ignore_exception(self):
-        if self.state in ["waiting", "confirmed", "assigned"]:
-            self.ignore_exception = False
+        if self.state in ["waiting", "confirmed", "assigned"] and self.ignore_exception:
+            self.with_context(raise_exception=False).ignore_exception = False
 
     def action_confirm(self):
         for rec in self:

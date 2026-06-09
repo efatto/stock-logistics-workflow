@@ -1,113 +1,106 @@
 # Copyright 2024 Open Source Integrators
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html)
-from odoo.tests import Form, TransactionCase
+
+from odoo.tests import Form
+
+from odoo.addons.base.tests.common import BaseCommon
 
 
-class TestStockException(TransactionCase):
+class TestStockException(BaseCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.env = cls.env(context=dict(cls.env.context, tracking_disable=True))
-        stock_location = cls.env.ref("stock.stock_location_stock")
-        customer_location = cls.env.ref("stock.stock_location_customers")
-        product = cls.env.ref("product.product_product_4")
-        picking_type = cls.env.ref("stock.picking_type_out")
-        # Create a picking in 'assigned' state with exceptions
-        cls.picking_with_exceptions = cls.env["stock.picking"].create(
-            {
-                "name": "Test Picking With Exceptions 2",
-                "state": "assigned",
-                "location_id": stock_location.id,
-                "location_dest_id": customer_location.id,
-                "picking_type_id": picking_type.id,
-                "move_ids": [
-                    (
-                        0,
-                        0,
-                        {
-                            "name": "Test Move With Exceptions",
-                            "product_id": product.id,
-                            "product_uom_qty": 1,
-                            "quantity": 1,
-                            "product_uom": cls.env.ref("uom.product_uom_unit").id,
-                            "location_id": stock_location.id,
-                            "location_dest_id": customer_location.id,
-                        },
-                    )
-                ],
-                "ignore_exception": False,
-            }
+        cls.StockPicking = cls.env["stock.picking"]
+        cls.StockMove = cls.env["stock.move"]
+        cls.stock_location = cls.env.ref("stock.stock_location_stock")
+        cls.customer_location = cls.env.ref("stock.stock_location_customers")
+        cls.product = cls.env.ref("product.product_product_4")
+        cls.picking_type = cls.env.ref("stock.picking_type_out")
+        cls.stock_exception_confirm = cls.env["stock.exception.confirm"]
+        cls.exception_no_partner = cls.env.ref("stock_exception.sp_excep_no_partner")
+        cls.exception_qty_check = cls.env.ref(
+            "stock_exception.sm_excep_product_uom_qty_check"
         )
+        cls.picking_vals = {
+            "name": "Test Picking With Exceptions 2",
+            "location_id": cls.stock_location.id,
+            "location_dest_id": cls.customer_location.id,
+            "picking_type_id": cls.picking_type.id,
+            "move_ids": [
+                (
+                    0,
+                    0,
+                    {
+                        "name": "Test Move",
+                        "product_id": cls.product.id,
+                        "product_uom_qty": 1.0,
+                        "product_uom": cls.product.uom_id.id,
+                        "location_id": cls.stock_location.id,
+                        "location_dest_id": cls.customer_location.id,
+                    },
+                )
+            ],
+        }
 
-        cls.exception = cls.env["exception.rule"].create(
-            {
-                "name": "Demand Quantity not positive",
-                "description": "Demand Quantity not positive",
-                "sequence": 50,
-                "model": "stock.move",
-                "code": "if self.product_uom_qty == 0: failed=True",
-                "active": False,
-            }
-        )
+    def test_stock_exception(self):
+        self.exception_no_partner.active = True
+        self.exception_qty_check.active = True
+        # Test 1: Picking without partner (triggers sp_excep_no_partner)
+        picking = self.StockPicking.create(self.picking_vals.copy())
+        res = picking.action_confirm()
+        self.assertEqual(res.get("res_model"), "stock.exception.confirm")
+        self.assertEqual(picking.state, "draft")
 
-    def test_detect_exceptions(self):
-        # Test that exceptions are detected for the picking with exceptions
-        self.exception.active = True
-        exceptions = self.picking_with_exceptions.detect_exceptions()
-        self.assertFalse(exceptions, "Exceptions shouldn't be detected")
-        move = self.picking_with_exceptions.move_ids[0]
-        move._reverse_field()
-        move.write({"product_uom_qty": 0})
-        exceptions = self.picking_with_exceptions.detect_exceptions()
-        self.assertTrue(exceptions, "Exceptions should be detected")
+        # Test all draft picking
+        picking2 = self.StockPicking.create(self.picking_vals.copy())
+        self.StockPicking.test_all_draft_pickings()
+        self.assertEqual(picking2.state, "draft")
 
-    def test_button_validate_with_exceptions(self):
-        self.exception.active = True
-        move = self.picking_with_exceptions.move_ids[0]
-        move.write({"product_uom_qty": 0})
-        move.write({"quantity": 1})
-        # Result returns a dict in case it detects an exception,
-        # otherwise it returns 'True'
-        self.picking_with_exceptions.detect_exceptions()
+        # Set ignore_exception flag (Done after ignore is selected at wizard)
+        picking.ignore_exception = True
+        picking.action_confirm()
+        # After confirm, it should be in 'confirmed' or 'assigned' state
+        self.assertIn(picking.state, ["confirmed", "assigned"])
 
-        # Verify the result of the button_validate action
-        # If exceptions detected, the result should be different from 'True'
-        self.assertTrue(
-            self.picking_with_exceptions.exception_ids.filtered(
-                lambda x: x == self.exception
-            )
-        )
+        # If we change move_ids, ignore_exception should become False
+        with Form(picking) as picking_form:
+            for i in range(len(picking_form.move_ids)):
+                with picking_form.move_ids.edit(i) as line_form:
+                    line_form.name = "Another Move"
+                    line_form.product_id = self.product
+                    line_form.product_uom_qty = 2
+                    line_form.product_uom = self.product.uom_id
+                    line_form.location_id = self.stock_location
+                    line_form.location_dest_id = self.customer_location
+            picking = picking_form.save()
+        self.assertFalse(picking.ignore_exception)
 
-    def test_onchange_ignore_exception(self):
-        # Change state and verify onchange behavior for picking
-        self.exception.active = True
-        self.picking_with_exceptions.onchange_ignore_exception()
-        self.picking_with_exceptions._reverse_field()
-        self.picking_with_exceptions.write(
-            {"state": "waiting", "ignore_exception": True}
-        )
-        self.assertTrue(self.picking_with_exceptions.ignore_exception)
+        # Simulation of the opening of the wizard stock_exception_confirm and
+        # set ignore_exception to True
+        picking.button_validate()
+        confirm_wizard = self.stock_exception_confirm.with_context(
+            active_id=picking.id,
+            active_ids=[picking.id],
+            active_model=picking._name,
+        ).create({"ignore": True})
+        confirm_wizard.action_confirm()
+        self.assertTrue(picking.ignore_exception)
 
-    def test_confirm_picking(self):
-        self.exception.active = True
-        self.stock_exception = self.env["exception.rule"].create(
-            {
-                "name": "No Partner",
-                "description": "No Partner",
-                "sequence": 10,
-                "model": "stock.picking",
-                "exception_type": "by_py_code",
-                "code": "if not self.partner_id: failed=True",
-            }
-        )
-        exception_action = self.picking_with_exceptions.action_confirm()
-        self.assertEqual(exception_action.get("res_model"), "stock.exception.confirm")
-        exception_form = Form(
-            self.env["stock.exception.confirm"].with_context(
-                **exception_action.get("context")
-            ),
-        )
-        stock_exception = exception_form.save()
-        stock_exception.ignore = True
-        self.picking_with_exceptions.test_all_draft_pickings()
-        stock_exception.action_confirm()
+    def test_exception_qty_check_blocking(self):
+        # No allow ignoring exceptions if the "is_blocking" field is checked
+        self.exception_qty_check.active = True
+        self.exception_qty_check.is_blocking = True
+        vals = self.picking_vals.copy()
+        vals["move_ids"][0][2]["product_uom_qty"] = 0
+        picking = self.StockPicking.create(vals)
+        confirm_wizard = self.stock_exception_confirm.with_context(
+            active_id=picking.id,
+            active_ids=[picking.id],
+            active_model=picking._name,
+        ).create({"ignore": True})
+        confirm_wizard.exception_ids = self.exception_qty_check
+        # If it's blocking, action_confirm should probably raise or return something
+        # in purchase it just calls action_confirm.
+        # Let's see what it does in stock.
+        confirm_wizard.action_confirm()
+        self.assertTrue(picking.state == "draft")

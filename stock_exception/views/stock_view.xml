@@ -25,7 +25,7 @@
                 <div
                     class="alert alert-danger"
                     role="alert"
-                    style="margin-bottom:0px;"
+                    style="margin-bottom:0;"
                     invisible="not exceptions_summary"
                 >
                     <p>
